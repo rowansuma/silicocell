@@ -1,0 +1,22 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "java",
+            "name": "Launch App",
+            "request": "launch",
+            "mainClass": "com.rowan.App",
+            "projectName": "silicocell",
+            "vmArgs": [
+                "--module-path",
+                "${workspaceFolder}/target/dependency",
+                "--add-modules",
+                "javafx.controls,javafx.fxml"
+            ],
+            "classPaths": [
+                "${workspaceFolder}/target/classes",
+                "${workspaceFolder}/target/dependency/*"
+            ]
+        }
+    ]
+}
