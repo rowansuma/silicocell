@@ -18,6 +18,9 @@ public abstract class PhysicsObject {
 
     protected Shape shape;
 
+    public int currentPartitionX;
+    public int currentPartitionY;
+
     protected Vector2f prevPos;
     protected Vector2f pos;
     protected float collisionRadius;
@@ -35,6 +38,9 @@ public abstract class PhysicsObject {
         this.s = s;
         this.prevPos = new Vector2f(pos);
         this.pos = new Vector2f(pos);
+
+        // currentPartitionX = getPartitionX();
+        // currentPartitionY = getPartitionY();
         
         this.collisionRadius = collisionRadius;
         s.addPhysicsObject(this);
@@ -75,6 +81,35 @@ public abstract class PhysicsObject {
     }
 
     /**
+     * Adds self to grid according to location.
+     */
+    public void assignPartition() {
+        s.insertObjectIntoGrid(this, getPartitionX(), getPartitionY());
+    }
+
+    /**
+     * Recalculates the partition indicies for this object.
+     */
+    public void recalculatePartition() {
+        int newX = getPartitionX();
+        int newY = getPartitionY();
+        if (!inExpectedPartition()) {
+            s.removeObjectFromGrid(this, currentPartitionX, currentPartitionY);
+            s.insertObjectIntoGrid(this, newX, newY);
+            currentPartitionX = newX;
+            currentPartitionY = newY;
+        }
+    }
+
+    /**
+     * Checks to see if this object is in its expected partition.
+     * @return
+     */
+    public boolean inExpectedPartition() {
+        return (getPartitionX() == currentPartitionX && getPartitionY() == currentPartitionY);
+    }
+
+    /**
      * Attempts to resolves collision between any two PhysicsObjects in accordance with verlet integration.
      * @param s  Simulation
      * @param p1 PhysicsObject 1
@@ -106,6 +141,26 @@ public abstract class PhysicsObject {
     public void setColor(Color c) {
         color = c;
         shape.setFill(color);
+    }
+
+    /**
+     * Returns the partition x index the cell is located in.
+     * @return partition x index
+     */
+    public int getPartitionX() {
+        float halfW = s.ENV_WIDTH / 2f;
+        int x = (int)((pos.x + halfW) / s.PARTITION_WIDTH);
+        return Math.max(0, Math.min(x, s.GRID_COLS - 1));
+    }
+
+    /**
+     * Returns the partition y index the cell is located in.
+     * @return partition y index
+     */
+    public int getPartitionY() {
+        float halfH = s.ENV_HEIGHT / 2f;
+        int y = (int)((pos.y + halfH) / s.PARTITION_HEIGHT);
+        return Math.max(0, Math.min(y, s.GRID_ROWS - 1));
     }
 
     public Color getColor() {

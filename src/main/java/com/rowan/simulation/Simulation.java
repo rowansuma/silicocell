@@ -1,6 +1,7 @@
 package com.rowan.simulation;
 
 import java.util.ArrayList;
+import java.util.List;
 
 import com.rowan.physicsobject.PhysicsObject;
 import com.rowan.physicsobject.cell.Cell;
@@ -21,10 +22,10 @@ public class Simulation {
     public final float SCREEN_WIDTH;
     public final float SCREEN_HEIGHT;
 
-    public final float ENV_WIDTH = 600;
-    public final float ENV_HEIGHT = 600;
+    public final float ENV_WIDTH = 4000;
+    public final float ENV_HEIGHT = 4000;
 
-    public final float ZOOM_FACTOR = 0.5f;
+    public final float ZOOM_FACTOR = 0.1f;
 
     public final float FRICTION = 0.96f;
     public final float CELL_RADIUS = 10f;
@@ -32,10 +33,16 @@ public class Simulation {
     public final float CELL_REPULSION = 0.2f;
     public final float CELL_SPEED = 0.05f;
     public final float CELL_TURN_SPEED = 0.2f;
+
     public final float OFFSET_X = ENV_WIDTH / 2f;
     public final float OFFSET_Y = ENV_HEIGHT / 2f;
 
-    private ArrayList<PhysicsObject> physicsObjects = new ArrayList<>();
+    public final int PARTITION_WIDTH = 20;
+    public final int PARTITION_HEIGHT = 20;
+    public final int GRID_COLS = (int)ENV_WIDTH/PARTITION_WIDTH;
+    public final int GRID_ROWS = (int)ENV_HEIGHT/PARTITION_HEIGHT;
+
+    private List<PhysicsObject>[][] grid = new ArrayList[GRID_COLS][GRID_ROWS];
     private ArrayList<PhysicsObject> addQueue = new ArrayList<>();
 
     /**
@@ -50,6 +57,8 @@ public class Simulation {
         this.SCREEN_WIDTH = (float) scene.getWidth();
         this.SCREEN_HEIGHT = (float) scene.getHeight();
 
+        initalizeGrid();
+
         setInitialConditions();
         startLoop();
     }
@@ -59,7 +68,7 @@ public class Simulation {
      * e.g. creation and position of initial cells.
      */
     private void setInitialConditions() {
-        for (int i = 0; i < 100; i++) {
+        for (int i = 0; i < 1; i++) {
             new Cell(this, Utils.randomSquareVector2f(OFFSET_X));
         }
     }
@@ -69,14 +78,31 @@ public class Simulation {
      */
     public void startLoop() {
         AnimationTimer gameLoop = new AnimationTimer() {
-            private long lastUpdate = 0;
+            private long lastTime = 0;
+            private long fpsTimer = 0;
+            private int frameCount = 0;
+            private double fps = 0;
 
             @Override
             public void handle(long now) {
-                if (lastUpdate > 0) {
+                if (lastTime > 0) {
+                    long delta = now - lastTime;
+                    fpsTimer += delta;
+                    frameCount++;
+
+                    // update FPS once per second (1,000,000,000 ns)
+                    if (fpsTimer >= 1_000_000_000L) {
+                        fps = frameCount * 1_000_000_000.0 / fpsTimer;
+                        frameCount = 0;
+                        fpsTimer = 0;
+
+                        // optional: print or store FPS
+                        System.out.println("FPS: " + (int)fps);
+                    }
+
                     gameLoop();
                 }
-                lastUpdate = now;
+                lastTime = now;
             }
         };
         gameLoop.start();
@@ -88,28 +114,61 @@ public class Simulation {
      * Called every simulation step.
      */
     public void gameLoop() {
-        System.out.println(physicsObjects.size());
-        for (int i = 0; i < 3; i++) { // Physics substeps
-            for (PhysicsObject o : physicsObjects) {
-                o.verletStep();
-                for (PhysicsObject other : physicsObjects) {
-                    if (other.equals(o)) continue;
-                    PhysicsObject.verletCollisions(this, o, other);
+        for (int n = 0; n < 3; n++) { // Physics substeps
+            for (int i = 0; i < grid.length; i++) { // Grid iteration
+                for (int j = 0; j < grid[0].length; j++) {
+                    for (PhysicsObject o : grid[i][j]) { // Object iteration
+
+                        o.verletStep();
+
+                        for (int k : new int[]{-1, 0, 1}) { // Neighbor partition iteration
+                            for (int l : new int[]{-1, 0, 1}) {
+                                int nx = i + k; // Neighbor partition
+                                int ny = j + l; // Neighbor partition
+                                if (nx < 0 || ny < 0 || nx >= GRID_COLS || ny >= GRID_ROWS) continue;
+                                for (PhysicsObject other : grid[nx][ny]) {
+                                    if (other.equals(o)) continue;
+                                    PhysicsObject.verletCollisions(this, o, other);
+                                }
+                            }
+                        }
+
+                        o.verletBorderConstraints();
+
+                    }
                 }
-                o.verletBorderConstraints();
             }
         }
-        for (PhysicsObject o : physicsObjects) { // Cell processes
-            if (o instanceof Cell) {
-                Cell c = (Cell) o;
-                c.applyLocomotion();
-                c.handleCellCycle();
+
+        ArrayList<PhysicsObject> toReAdd = new ArrayList<>(); // Object to be re-added to grid
+
+        for (int i = 0; i < grid.length; i++) { // Cell processes
+            for (int j = 0; j < grid[0].length; j++) {
+                for (PhysicsObject o : grid[i][j]) {
+                    if (o instanceof Cell) {
+                        Cell c = (Cell) o;
+                        c.applyLocomotion();
+                        c.handleCellCycle();
+                    }
+                    o.updateShapePosition();
+
+                    if (!o.inExpectedPartition()) toReAdd.add(o);
+                }
             }
-            o.updateShapePosition();
         }
-        physicsObjects.addAll(addQueue);
+
+
+        toReAdd.addAll(addQueue);
         addQueue.clear();
+
+        for (PhysicsObject o : toReAdd) { // Re-add objects to grid
+            o.recalculatePartition();
+        }
+
+        
     }
+
+    
 
     /**
      * Adds a shape to the scene.
@@ -128,8 +187,43 @@ public class Simulation {
         addQueue.add(o);
     }
 
-    public ArrayList<PhysicsObject> getPhysicsObjects() {
-        return physicsObjects;
+    /**
+     * Initializes the grid and adds empty partitions.
+     */
+    public void initalizeGrid() {
+        for (int i = 0; i < GRID_COLS; i++)
+            for (int j = 0; j < GRID_ROWS; j++)
+                grid[i][j] = new ArrayList<>();
+    }
+
+    /**
+     * Inserts PhysicsObject into grid.
+     * @param o Object
+     * @param x x index
+     * @param y y index
+     */
+    public void insertObjectIntoGrid(PhysicsObject o, int x, int y) {
+        grid[x][y].add(o);
+    }
+
+    /**
+     * Removes PhysicsObject from grid.
+     * @param o Object
+     * @param x x index
+     * @param y y index
+     */
+    public void removeObjectFromGrid(PhysicsObject o, int x, int y) {
+        List<PhysicsObject> cell = grid[x][y];
+        int idx = cell.indexOf(o);
+        if (idx != -1) {
+            int last = cell.size() - 1;
+            cell.set(idx, cell.get(last));
+            cell.remove(last);
+        }
+    }
+
+    public List<PhysicsObject>[][] getGrid() {
+        return grid;
     }
 
     public Scene getScene() {
